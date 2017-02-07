@@ -5,19 +5,17 @@ let http = require('http');
 const Autolinker = require('autolinker');
 
 let regdateCache = {};
+
+let gameData = {};
 try {
-	let gameData = JSON.parse(fs.readFileSync('config/SGGame/pokemon.json', 'utf8'));
-} catch(e) {}
+	gameData = JSON.parse(fs.readFileSync('config/SGGame/pokemon.json', 'utf8'));
+} catch (e) {}
 
 exports.SG = {
 	nameColor: function (name, bold) {
-		return (bold ? "<b>" : "") + "<font color=" + hashColorWithCustoms(name) + ">" + (Users(name) && Users(name).connected && Users.getExact(name) ? Chat.escapeHTML(Users.getExact(name).name) : Chat.escapeHTML(name)) + "</font>" + (bold ? "</b>" : "");
+		return (bold ? "<b>" : "") + "<font color=" + SG.hashColor(name) + ">" + (Users(name) && Users(name).connected && Users.getExact(name) ? Chat.escapeHTML(Users.getExact(name).name) : Chat.escapeHTML(name)) + "</font>" + (bold ? "</b>" : "");
 	},
 	// usage: SG.nameColor(user.name, true) for bold OR SG.nameColor(user.name, false) for non-bolded.
-
-	hashColor: function (user) {
-		return hashColorWithCustoms(user);
-	},
 
 	messageSeniorStaff: function (message, pmName, from) {
 		pmName = (pmName ? pmName : '~Upper Staff PM');
@@ -64,33 +62,6 @@ exports.SG = {
 		});
 	},
 
-	// We missed this when removing SQlite3, this should be cleaned up on the master branch
-	/*setTitle: function (userid, title, callback) {
-		userid = toId(userid);
-		SG.database.all("SELECT * FROM users WHERE userid=$userid", {$userid: userid}, function (err, rows) {
-			if (rows.length < 1) {
-				SG.database.run("INSERT INTO users(userid, title) VALUES ($userid, $title)", {$userid: userid, $title: title}, function (err) {
-					if (err) return console.log(err);
-					if (callback) return callback();
-				});
-			} else {
-				SG.database.run("UPDATE users SET title=$title WHERE userid=$userid", {$title: title, $userid: userid}, function (err) {
-					if (err) return console.log(err);
-					if (callback) return callback();
-				});
-			}
-		});
-	};
-
-	getTitle: function (userid, callback) {
-		if (!callback) return false;
-		userid = toId(userid);
-		SG.database.all("SELECT title FROM users WHERE userid=$userid", {$userid: userid}, function (err, rows) {
-			if (err) return console.log(err);
-			callback(((rows[0] && rows[0].title) ? rows[0].title : ""));
-		});
-	};*/
-
 	parseMessage: function (message) {
 		if (message.substr(0, 5) === "/html") {
 			message = message.substr(5);
@@ -112,6 +83,17 @@ exports.SG = {
 
 	randomString: function (length) {
 		return Math.round((Math.pow(36, length + 1) - Math.random() * Math.pow(36, length))).toString(36).slice(1);
+	},
+
+	reloadCSS: function () {
+		const cssPath = 'spacialgaze'; // This should be the server id if Config.serverid doesn't exist. Ex: 'serverid'
+		let options = {
+			host: 'play.pokemonshowdown.com',
+			port: 80,
+			path: '/customcss.php?server=' + (Config.serverid || cssPath),
+			method: 'GET',
+		};
+		http.get(options);
 	},
 
 	//This code is a WIP
@@ -179,18 +161,7 @@ exports.SG = {
 		let user = new Users.User({user: false, send: function () {}, inRooms: new Set(), worker: {send: function () {}}, socketid: false, ip: '', protocal: '', autojoin: '', isCOM: true}); // Fake connection object, fill it with whats needed to prevent crashes
 		user.connected = false; // Technically isnt connected
 		user.avatar = 167;
-		user.wildTeams = {}; //Object to store data from wild pokemon battles.
-		user.onPokemonCaught = function (user) { // Handles pokemon catching
-			if (!user || !this.wildTeams[toId(user)]) return false;
-			user = toId(user);
-			let curTeam = Db('players').get(user, []);
-			if (curTeam.length === 6) return false; // TODO PC boxes / release a pokemon
-			let newSet = SG.unpackTeam(this.wildTeams[user]);
-			if (!newSet) return false;
-			curTeam.push(newSet);
-			Db('players').set(user, curTeam);
-			return true;
-		};
+		user.wildTeams = {}; // Object to store data from wild pokemon battles.
 		user.forceRename('SG Server', true); // I have this name registed for use here. - HoeenHero
 		return user;
 	},
@@ -214,7 +185,7 @@ exports.SG = {
 					let idx = battle[side].pokemon.indexOf(choices[i]);
 					let data = [battle.id, 'choose', side];
 					data.push('switch ' + (idx + 1));
-					data.push(battle.turn);
+					//data.push(battle.turn);
 					battle.receive(data);
 					return true;
 				}
@@ -224,7 +195,7 @@ exports.SG = {
 				let choice = Math.floor(Math.random() * battle[side].active[0].moves.length);
 				let data = [battle.id, 'choose', side];
 				data.push('move ' + (choice + 1));
-				data.push(battle.turn);
+				//data.push(battle.turn);
 				battle.receive(data);
 				return true;
 			}
@@ -233,7 +204,15 @@ exports.SG = {
 	},
 	makeWildPokemon: function (location, exact) {
 		//TODO: locations
-		let pokemon = ['lotad', 'snorunt', 'archen', 'klink', 'cacnea', 'lillipup', 'gible', 'magikarp', 'numel', 'pineco', 'pikachu', 'makuhita', 'starly', 'gulpin', 'elgyem', 'swirlix', 'purrloin'][Math.floor(Math.random() * 17)]; //TODO pull from location
+		let mons = Object.keys(Tools.data.Pokedex);
+		let pokemon = [];
+		for (let i = 0; i < mons.length; i++) {
+			let poke = Tools.getTemplate(mons[i]);
+			if (poke.tier !== 'LC' && poke.tier !== 'LC-Uber') continue;
+			pokemon.push(poke.id);
+		}
+		//let pokemon = ['lotad', 'snorunt', 'archen', 'klink', 'cacnea', 'lillipup', 'gible', 'magikarp', 'numel', 'pineco', 'pikachu', 'makuhita', 'starly', 'gulpin', 'elgyem', 'swirlix', 'purrloin'][Math.floor(Math.random() * 17)]; //TODO pull from location
+		pokemon = pokemon[Math.floor(Math.random() * pokemon.length)];
 		if (exact && Tools.getTemplate(exact.species).exists) pokemon = exact.species;
 		pokemon = Tools.getTemplate(pokemon);
 		if (!pokemon || !pokemon.exists) {
@@ -275,6 +254,11 @@ exports.SG = {
 		for (let i = 0; i < 4; i++) {
 			if (raw.length === 0) break;
 			let target = raw.pop();
+			if (moves.split(',').indexOf(target.move) > -1) {
+				// Duplicate move
+				i--;
+				continue;
+			}
 			moves += target.move + ((raw.length === 0 || i === 3) ? "" : ",");
 		}
 		data += moves + "|";
@@ -295,7 +279,7 @@ exports.SG = {
 			data += ['Bashful', 'Docile', 'Hardy', 'Quirky', 'Serious'][Math.floor(Math.random() * 5)] + "||";
 		}
 		let gender = Math.random();
-		if (pokemon.genderRatio.M < gender) {
+		if (pokemon.genderRatio.M > gender) {
 			gender = "M";
 		} else if (pokemon.genderRatio.M !== 0 && pokemon.genderRatio.F !== 0) {
 			gender = "F";
@@ -319,11 +303,19 @@ exports.SG = {
 		return data;
 		//return "|lotad|||astonish,growl,absorb|Hasty|||30,21,21,28,29,19||6|0";
 	},
+	teamAverage: function (team) {
+		if (typeof team === "string") team = SG.unpackTeam(team);
+		let avrg = 0;
+		for (let i = 0; i < team.length; i++) {
+			avrg += team[i].level;
+		}
+		avrg = avrg / team.length;
+		return Math.round(avrg);
+	},
 	throwPokeball: function (ball, pokemon) {
 		if (!pokemon || !pokemon.species) return 0;
 		ball = toId(ball);
 		let ballRates = {pokeball: 1, greatball: 1.5, ultraball: 2};
-		let catchRates = {};
 		if (ball === 'masterball') return true;
 		if (!ball || !(ball in ballRates)) ball = 'pokeball';
 		let statusBonus = 1;
@@ -341,7 +333,7 @@ exports.SG = {
 		default:
 			statusBonus = 1;
 		}
-		let rate = catchRates[toId(pokemon.species)]; // TODO catch rates
+		let rate = gameData[toId(pokemon.species)].rate;
 		if (!rate) {
 			console.log('Catch rate not found for ' + pokemon.species);
 			rate = 150;
@@ -554,19 +546,248 @@ exports.SG = {
 		return EXP;
 	},
 	getGain: function (userid, pokemon, foe, particpated) {
-		let a = 1, t = (pokemon.ot === userid ? 1 : 1.5), e = (toId(pokemon.item) === 'luckyegg' ? 1.5 : 1), f = 1, L = foe.level, Lp = pokemon.level, p = 1, s = (particpated ? 2 : 1);
+		let a = 1, t = (pokemon.ot === userid ? 1 : 1.5), e = (toId(pokemon.item) === 'luckyegg' ? 1.5 : 1), L = foe.level, Lp = pokemon.level, p = 1, s = (particpated ? 2 : 1);
 		/* TODO
-		v is equal to...
-		Generation VI+ only: 1.2 if the winning Pokémon is at or past the level where it would be able to evolve, but it has not
-		* * * * *
-		b is the base experience yield of the fainted Pokémon's species; values for the current Generation are listed here ( http://bulbapedia.bulbagarden.net/wiki/List_of_Pok%C3%A9mon_by_effort_value_yield )
+		b is the base experience yield of the fainted PokÃ©mon's species; values for the current Generation are listed here ( http://bulbapedia.bulbagarden.net/wiki/List_of_Pok%C3%A9mon_by_effort_value_yield )
 		TODO base experience yeild => JSON
 		* * * * *
-		using defaults atm...
+		using default atm...
 		Why 57 for b as default? The test mons are low formes.
 		*/
-		let b = 57, v = 1; 
+		let b = 57;
 		return (((a * b * L) / (5 * s)) * (Math.pow((2 * L + 10), 2.5) / Math.pow((L + Lp + 10), 2.5)) + 1) * t * e * p;
+	},
+	// Ripped from client, modified for SGgame
+	getPokemonIcon: function (pokemon) {
+		let base = pokemon;
+		pokemon = Tools.getTemplate(pokemon);
+		let resourcePrefix = "//play.pokemonshowdown.com/";
+		let num = 0;
+		if (base === 'pokeball') {
+			return 'background:transparent url(' + resourcePrefix + 'sprites/smicons-pokeball-sheet.png) no-repeat scroll -0px 4px';
+		} else if (base === 'pokeball-statused') {
+			return 'background:transparent url(' + resourcePrefix + 'sprites/smicons-pokeball-sheet.png) no-repeat scroll -40px 4px';
+		} else if (base === 'pokeball-none') {
+			return 'background:transparent url(' + resourcePrefix + 'sprites/smicons-pokeball-sheet.png) no-repeat scroll -80px 4px';
+		}
+		let id = toId(base);
+		if (pokemon && pokemon.species) id = toId(pokemon.species);
+		if (pokemon && pokemon.volatiles && pokemon.volatiles.formechange && !pokemon.volatiles.transform) id = toId(pokemon.volatiles.formechange[2]);
+		if (pokemon && pokemon.num !== undefined) num = pokemon.num;
+		if (num < 0) num = 0;
+		if (num > 802) num = 0;
+		let altNums = {
+			egg: 804 + 1,
+			pikachubelle: 804 + 2,
+			pikachulibre: 804 + 3,
+			pikachuphd: 804 + 4,
+			pikachupopstar: 804 + 5,
+			pikachurockstar: 804 + 6,
+			pikachucosplay: 804 + 7,
+			castformrainy: 804 + 35,
+			castformsnowy: 804 + 36,
+			castformsunny: 804 + 37,
+			deoxysattack: 804 + 38,
+			deoxysdefense: 804 + 39,
+			deoxysspeed: 804 + 40,
+			burmysandy: 804 + 41,
+			burmytrash: 804 + 42,
+			wormadamsandy: 804 + 43,
+			wormadamtrash: 804 + 44,
+			cherrimsunshine: 804 + 45,
+			shelloseast: 804 + 46,
+			gastrodoneast: 804 + 47,
+			rotomfan: 804 + 48,
+			rotomfrost: 804 + 49,
+			rotomheat: 804 + 50,
+			rotommow: 804 + 51,
+			rotomwash: 804 + 52,
+			giratinaorigin: 804 + 53,
+			shayminsky: 804 + 54,
+			unfezantf: 804 + 55,
+			basculinbluestriped: 804 + 56,
+			darmanitanzen: 804 + 57,
+			deerlingautumn: 804 + 58,
+			deerlingsummer: 804 + 59,
+			deerlingwinter: 804 + 60,
+			sawsbuckautumn: 804 + 61,
+			sawsbucksummer: 804 + 62,
+			sawsbuckwinter: 804 + 63,
+			frillishf: 804 + 64,
+			jellicentf: 804 + 65,
+			tornadustherian: 804 + 66,
+			thundurustherian: 804 + 67,
+			landorustherian: 804 + 68,
+			kyuremblack: 804 + 69,
+			kyuremwhite: 804 + 70,
+			keldeoresolute: 804 + 71,
+			meloettapirouette: 804 + 72,
+			vivillonarchipelago: 804 + 73,
+			vivilloncontinental: 804 + 74,
+			vivillonelegant: 804 + 75,
+			vivillonfancy: 804 + 76,
+			vivillongarden: 804 + 77,
+			vivillonhighplains: 804 + 78,
+			vivillonicysnow: 804 + 79,
+			vivillonjungle: 804 + 80,
+			vivillonmarine: 804 + 81,
+			vivillonmodern: 804 + 82,
+			vivillonmonsoon: 804 + 83,
+			vivillonocean: 804 + 84,
+			vivillonpokeball: 804 + 85,
+			vivillonpolar: 804 + 86,
+			vivillonriver: 804 + 87,
+			vivillonsandstorm: 804 + 88,
+			vivillonsavanna: 804 + 89,
+			vivillonsun: 804 + 90,
+			vivillontundra: 804 + 91,
+			pyroarf: 804 + 92,
+			flabebeblue: 804 + 93,
+			flabebeorange: 804 + 94,
+			flabebewhite: 804 + 95,
+			flabebeyellow: 804 + 96,
+			floetteblue: 804 + 97,
+			floetteeternal: 804 + 98,
+			floetteorange: 804 + 99,
+			floettewhite: 804 + 100,
+			floetteyellow: 804 + 101,
+			florgesblue: 804 + 102,
+			florgesorange: 804 + 103,
+			florgeswhite: 804 + 104,
+			florgesyellow: 804 + 105,
+			meowsticf: 804 + 115,
+			aegislashblade: 804 + 116,
+			hoopaunbound: 804 + 118,
+			rattataalola: 804 + 119,
+			raticatealola: 804 + 120,
+			raichualola: 804 + 121,
+			sandshrewalola: 804 + 122,
+			sandslashalola: 804 + 123,
+			vulpixalola: 804 + 124,
+			ninetalesalola: 804 + 125,
+			diglettalola: 804 + 126,
+			dugtrioalola: 804 + 127,
+			meowthalola: 804 + 128,
+			persianalola: 804 + 129,
+			geodudealola: 804 + 130,
+			graveleralola: 804 + 131,
+			golemalola: 804 + 132,
+			grimeralola: 804 + 133,
+			mukalola: 804 + 134,
+			exeggutoralola: 804 + 135,
+			marowakalola: 804 + 136,
+			greninjaash: 804 + 137,
+			zygarde10: 804 + 138,
+			zygardecomplete: 804 + 139,
+			oricoriopompom: 804 + 140,
+			oricoriopau: 804 + 141,
+			oricoriosensu: 804 + 142,
+			lycanrocmidnight: 804 + 143,
+			wishiwashischool: 804 + 144,
+			miniormeteor: 804 + 145,
+			miniororange: 804 + 146,
+			minioryellow: 804 + 147,
+			miniorgreen: 804 + 148,
+			miniorblue: 804 + 149,
+			miniorviolet: 804 + 150,
+			miniorindigo: 804 + 151,
+			magearnaoriginal: 804 + 152,
+			pikachuoriginal: 804 + 153,
+			pikachuhoenn: 804 + 154,
+			pikachusinnoh: 804 + 155,
+			pikachuunova: 804 + 156,
+			pikachukalos: 804 + 157,
+			pikachualola: 804 + 158,
+
+			venusaurmega: 972 + 0,
+			charizardmegax: 972 + 1,
+			charizardmegay: 972 + 2,
+			blastoisemega: 972 + 3,
+			beedrillmega: 972 + 4,
+			pidgeotmega: 972 + 5,
+			alakazammega: 972 + 6,
+			slowbromega: 972 + 7,
+			gengarmega: 972 + 8,
+			kangaskhanmega: 972 + 9,
+			pinsirmega: 972 + 10,
+			gyaradosmega: 972 + 11,
+			aerodactylmega: 972 + 12,
+			mewtwomegax: 972 + 13,
+			mewtwomegay: 972 + 14,
+			ampharosmega: 972 + 15,
+			steelixmega: 972 + 16,
+			scizormega: 972 + 17,
+			heracrossmega: 972 + 18,
+			houndoommega: 972 + 19,
+			tyranitarmega: 972 + 20,
+			sceptilemega: 972 + 21,
+			blazikenmega: 972 + 22,
+			swampertmega: 972 + 23,
+			gardevoirmega: 972 + 24,
+			sableyemega: 972 + 25,
+			mawilemega: 972 + 26,
+			aggronmega: 972 + 27,
+			medichammega: 972 + 28,
+			manectricmega: 972 + 29,
+			sharpedomega: 972 + 30,
+			cameruptmega: 972 + 31,
+			altariamega: 972 + 32,
+			banettemega: 972 + 33,
+			absolmega: 972 + 34,
+			glaliemega: 972 + 35,
+			salamencemega: 972 + 36,
+			metagrossmega: 972 + 37,
+			latiasmega: 972 + 38,
+			latiosmega: 972 + 39,
+			kyogreprimal: 972 + 40,
+			groudonprimal: 972 + 41,
+			rayquazamega: 972 + 42,
+			lopunnymega: 972 + 43,
+			garchompmega: 972 + 44,
+			lucariomega: 972 + 45,
+			abomasnowmega: 972 + 46,
+			gallademega: 972 + 47,
+			audinomega: 972 + 48,
+			dianciemega: 972 + 49,
+
+			syclant: 1140 + 0,
+			revenankh: 1140 + 1,
+			pyroak: 1140 + 2,
+			fidgit: 1140 + 3,
+			stratagem: 1140 + 4,
+			arghonaut: 1140 + 5,
+			kitsunoh: 1140 + 6,
+			cyclohm: 1140 + 7,
+			colossoil: 1140 + 8,
+			krilowatt: 1140 + 9,
+			voodoom: 1140 + 10,
+			tomohawk: 1140 + 11,
+			necturna: 1140 + 12,
+			mollux: 1140 + 13,
+			aurumoth: 1140 + 14,
+			malaconda: 1140 + 15,
+			cawmodore: 1140 + 16,
+			volkraken: 1140 + 17,
+			plasmanta: 1140 + 18,
+			naviathan: 1140 + 19,
+			crucibelle: 1140 + 20,
+			crucibellemega: 1140 + 21,
+			kerfluffle: 1140 + 22,
+		};
+
+		if (altNums[id]) {
+			num = altNums[id];
+		}
+
+		if (pokemon && pokemon.gender === 'F') {
+			if (id === 'unfezant' || id === 'frillish' || id === 'jellicent' || id === 'meowstic' || id === 'pyroar') {
+				num = altNums[id + 'f'];
+			}
+		}
+		let top = Math.floor(num / 12) * 30;
+		let left = (num % 12) * 40;
+		let fainted = (pokemon && pokemon.fainted ? ';opacity:.4' : '');
+		return 'background:transparent url(' + resourcePrefix + 'sprites/smicons-sheet.png?a1) no-repeat scroll -' + left + 'px -' + top + 'px' + fainted;
 	},
 };
 
